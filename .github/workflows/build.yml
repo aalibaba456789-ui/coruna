@@ -36,17 +36,17 @@ jobs:
         run: |
           cd src/kfd
           ls -la
-          # wrapper
+          # wrapper - kclose 不存在，用空实现
           cat > /tmp/kfd_wrapper.c << 'WEOF'
 #include <stdint.h>
-extern uint64_t kopen(uint64_t, uint64_t, uint64_t, uint64_t);
-extern void kread(uint64_t, uint64_t, void*, uint64_t);
-extern void kwrite(uint64_t, void*, uint64_t, uint64_t);
-extern void kclose(uint64_t);
-uint64_t kfd_open(uint64_t p, int m) { return kopen(p,(uint64_t)m,0,0); }
-void kfd_read(uint64_t f, uint64_t a, void *b, uint64_t s) { kread(f,a,b,s); }
-void kfd_write(uint64_t f, void *b, uint64_t a, uint64_t s) { kwrite(f,b,a,s); }
-void kfd_close(uint64_t f) { kclose(f); }
+typedef uint64_t u64;
+extern u64 kopen(u64 puaf_pages, u64 puaf_method, u64 kread_method, u64 kwrite_method);
+extern void kread(u64 kfd, u64 kaddr, void* uaddr, u64 size);
+extern void kwrite(u64 kfd, void* uaddr, u64 kaddr, u64 size);
+u64 kfd_open(u64 pages, int method) { return kopen(pages, (u64)method, 0, 0); }
+void kfd_read(u64 kfd, u64 addr, void *buf, u64 size) { kread(kfd, addr, buf, size); }
+void kfd_write(u64 kfd, void *buf, u64 addr, u64 size) { kwrite(kfd, buf, addr, size); }
+void kfd_close(u64 kfd) { /* no-op, cleanup handled internally */ }
 WEOF
           SRCS=$(find libkfd -name "*.c" | tr '\n' ' ')
           echo "Sources: $SRCS"
@@ -55,6 +55,7 @@ WEOF
             -miphoneos-version-min=16.0 \
             -O2 -fPIC -I libkfd \
             -Wno-implicit-function-declaration \
+            -include libkfd/libkfd.h \
             -install_name "@rpath/kfd.dylib" \
             -o kfd.dylib \
             /tmp/kfd_wrapper.c $SRCS
