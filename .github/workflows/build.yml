@@ -8,6 +8,7 @@ jobs:
       - run: |
           cd src/trigon
           xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -miphoneos-version-min=13.0 -O2 -fPIC -framework CoreFoundation -framework IOSurface -framework IOKit -install_name @rpath/trigon_photon.dylib -o trigon_photon.dylib *.c *.S
+          ls -lh trigon_photon.dylib
       - uses: actions/upload-artifact@v4
         with:
           name: trigon
@@ -19,42 +20,41 @@ jobs:
       - uses: actions/checkout@v4
       - run: |
           cd src/kfd
-          echo '#include <stdint.h>' > /tmp/w.c
-          echo 'typedef uint64_t u64;' >> /tmp/w.c
-          echo 'extern u64 kopen(u64,u64,u64,u64);' >> /tmp/w.c
-          echo 'extern void kread(u64,u64,void*,u64);' >> /tmp/w.c
-          echo 'extern void kwrite(u64,void*,u64,u64);' >> /tmp/w.c
-          echo 'u64 kfd_open(u64 p,int m){return kopen(p,(u64)m,0,0);}' >> /tmp/w.c
-          echo 'void kfd_read(u64 f,u64 a,void *b,u64 s){kread(f,a,b,s);}' >> /tmp/w.c
-          echo 'void kfd_write(u64 f,void *b,u64 a,u64 s){kwrite(f,b,a,s);}' >> /tmp/w.c
-          echo 'void kfd_close(u64 f){(void)f;}' >> /tmp/w.c
-          SRCS=$(find libkfd -name '*.c' | tr '\n' ' ')
-          xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -miphoneos-version-min=16.0 -O2 -fPIC -I libkfd -include libkfd/libkfd.h -Wno-implicit-function-declaration -install_name @rpath/kfd.dylib -o kfd.dylib /tmp/w.c $SRCS
+          cat > /tmp/kfd_main.c << 'CEOF'
+#include <stdio.h>
+#include <stdint.h>
+#include <assert.h>
+#include "libkfd.h"
+
+typedef uint64_t u64;
+
+u64 kfd_open(u64 pages, int method) {
+    return kopen(pages, (u64)method, 0, 0);
+}
+
+void kfd_read(u64 kfd, u64 addr, void *buf, u64 size) {
+    kread(kfd, addr, buf, size);
+}
+
+void kfd_write(u64 kfd, void *buf, u64 addr, u64 size) {
+    kwrite(kfd, buf, addr, size);
+}
+
+void kfd_close(u64 kfd) {
+    (void)kfd;
+}
+CEOF
+          xcrun -sdk iphoneos clang -dynamiclib -arch arm64 \
+            -miphoneos-version-min=16.0 -O2 -fPIC \
+            -I . \
+            -Wno-implicit-function-declaration \
+            -Wno-unused-variable \
+            -Wno-incompatible-pointer-types \
+            -install_name @rpath/kfd.dylib \
+            -o kfd.dylib \
+            /tmp/kfd_main.c
+          ls -lh kfd.dylib
       - uses: actions/upload-artifact@v4
         with:
           name: kfd
           path: src/kfd/kfd.dylib
-
-  titan:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          cd src/titan
-          mkdir -p external/lib external/include/libjailbreak
-          echo '#include <stdint.h>' > /tmp/jb.c
-          echo 'int jbclient_initialize_primitives(void){return 0;}' >> /tmp/jb.c
-          echo 'void jbinfo_initialize_hardcoded_offsets(void){}' >> /tmp/jb.c
-          echo 'void libjailbreak_translation_init(void){}' >> /tmp/jb.c
-          echo '#ifndef JB_H' > external/include/libjailbreak/libjailbreak.h
-          echo '#define JB_H' >> external/include/libjailbreak/libjailbreak.h
-          echo '#include <stdint.h>' >> external/include/libjailbreak/libjailbreak.h
-          echo 'int jbclient_initialize_primitives(void);' >> external/include/libjailbreak/libjailbreak.h
-          echo '#endif' >> external/include/libjailbreak/libjailbreak.h
-          xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -miphoneos-version-min=16.1 -o external/lib/libjailbreak.dylib /tmp/jb.c
-          SRCS=$(find src -name '*.c' -o -name '*.m' | tr '\n' ' ')
-          xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -miphoneos-version-min=16.1 -O2 -fPIC -I . -I external/include -L external/lib -framework CoreFoundation -framework IOSurface -framework IOKit -ljailbreak -Wno-implicit-function-declaration -install_name @rpath/titan_sparrow.dylib -o titan_sparrow.dylib $SRCS
-      - uses: actions/upload-artifact@v4
-        with:
-          name: titan
-          path: src/titan/titan_sparrow.dylib
