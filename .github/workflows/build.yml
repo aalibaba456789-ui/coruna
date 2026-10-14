@@ -4,16 +4,16 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-trigon:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Build Trigon (Photon) - iOS 13.0-15.7.6
+      - name: Build Trigon
         run: |
           cd src/trigon
+          ls -la
           xcrun -sdk iphoneos clang \
-            -dynamiclib -arch arm64 -arch arm64e \
+            -dynamiclib -arch arm64 \
             -miphoneos-version-min=13.0 \
             -O2 -fPIC \
             -framework CoreFoundation \
@@ -23,24 +23,35 @@ jobs:
             -o trigon_photon.dylib \
             *.c *.S
           ls -lh trigon_photon.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trigon-photon
+          path: src/trigon/trigon_photon.dylib
 
-      - name: Build kfd - iOS 16.0-16.6.1
+  build-kfd:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build kfd
         run: |
           cd src/kfd
-          cat > /tmp/kfd_wrapper.c << 'EOF'
-          #include <stdint.h>
-          extern uint64_t kopen(uint64_t, uint64_t, uint64_t, uint64_t);
-          extern void kread(uint64_t, uint64_t, void*, uint64_t);
-          extern void kwrite(uint64_t, void*, uint64_t, uint64_t);
-          extern void kclose(uint64_t);
-          uint64_t kfd_open(uint64_t pages, int method) { return kopen(pages, (uint64_t)method, 0, 0); }
-          void kfd_read(uint64_t kfd, uint64_t addr, void *buf, uint64_t size) { kread(kfd, addr, buf, size); }
-          void kfd_write(uint64_t kfd, void *buf, uint64_t addr, uint64_t size) { kwrite(kfd, buf, addr, size); }
-          void kfd_close(uint64_t kfd) { kclose(kfd); }
-          EOF
+          ls -la
+          # wrapper
+          cat > /tmp/kfd_wrapper.c << 'WEOF'
+#include <stdint.h>
+extern uint64_t kopen(uint64_t, uint64_t, uint64_t, uint64_t);
+extern void kread(uint64_t, uint64_t, void*, uint64_t);
+extern void kwrite(uint64_t, void*, uint64_t, uint64_t);
+extern void kclose(uint64_t);
+uint64_t kfd_open(uint64_t p, int m) { return kopen(p,(uint64_t)m,0,0); }
+void kfd_read(uint64_t f, uint64_t a, void *b, uint64_t s) { kread(f,a,b,s); }
+void kfd_write(uint64_t f, void *b, uint64_t a, uint64_t s) { kwrite(f,b,a,s); }
+void kfd_close(uint64_t f) { kclose(f); }
+WEOF
           SRCS=$(find libkfd -name "*.c" | tr '\n' ' ')
+          echo "Sources: $SRCS"
           xcrun -sdk iphoneos clang \
-            -dynamiclib -arch arm64 -arch arm64e \
+            -dynamiclib -arch arm64 \
             -miphoneos-version-min=16.0 \
             -O2 -fPIC -I libkfd \
             -Wno-implicit-function-declaration \
@@ -48,27 +59,42 @@ jobs:
             -o kfd.dylib \
             /tmp/kfd_wrapper.c $SRCS
           ls -lh kfd.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kfd
+          path: src/kfd/kfd.dylib
 
-      - name: Build Titan (Sparrow/Rocket) - iOS 16.1-17.4
+  build-titan:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Titan
         run: |
           cd src/titan
+          ls -la
           mkdir -p external/lib external/include/libjailbreak
-          echo '#include <stdint.h>
-          int jbclient_initialize_primitives(void) { return 0; }
-          void jbinfo_initialize_hardcoded_offsets(void) {}
-          void libjailbreak_translation_init(void) {}' > /tmp/jb.c
-          echo '#ifndef JB_H
-          #define JB_H
-          #include <stdint.h>
-          int jbclient_initialize_primitives(void);
-          void jbinfo_initialize_hardcoded_offsets(void);
-          void libjailbreak_translation_init(void);
-          #endif' > external/include/libjailbreak/libjailbreak.h
-          xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -arch arm64e \
+          # stub libjailbreak
+          cat > /tmp/jb.c << 'JEOF'
+#include <stdint.h>
+int jbclient_initialize_primitives(void) { return 0; }
+void jbinfo_initialize_hardcoded_offsets(void) {}
+void libjailbreak_translation_init(void) {}
+JEOF
+          cat > external/include/libjailbreak/libjailbreak.h << 'HEOF'
+#ifndef JB_H
+#define JB_H
+#include <stdint.h>
+int jbclient_initialize_primitives(void);
+void jbinfo_initialize_hardcoded_offsets(void);
+void libjailbreak_translation_init(void);
+#endif
+HEOF
+          xcrun -sdk iphoneos clang -dynamiclib -arch arm64 \
             -miphoneos-version-min=16.1 -o external/lib/libjailbreak.dylib /tmp/jb.c
           SRCS=$(find src -name "*.c" -o -name "*.m" | tr '\n' ' ')
+          echo "Sources: $SRCS"
           xcrun -sdk iphoneos clang \
-            -dynamiclib -arch arm64 -arch arm64e \
+            -dynamiclib -arch arm64 \
             -miphoneos-version-min=16.1 \
             -O2 -fPIC -I . -I external/include -L external/lib \
             -framework CoreFoundation -framework IOSurface -framework IOKit \
@@ -77,16 +103,7 @@ jobs:
             -o titan_sparrow.dylib \
             $SRCS
           ls -lh titan_sparrow.dylib
-
-      - name: Collect & Upload
-        run: |
-          mkdir -p out
-          cp src/trigon/trigon_photon.dylib out/ 2>/dev/null || true
-          cp src/kfd/kfd.dylib out/ 2>/dev/null || true
-          cp src/titan/titan_sparrow.dylib out/ 2>/dev/null || true
-          ls -lh out/
-
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-dylibs
-          path: out/*.dylib
+          name: titan-sparrow
+          path: src/titan/titan_sparrow.dylib
