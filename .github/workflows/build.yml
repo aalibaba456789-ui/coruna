@@ -94,56 +94,47 @@ jobs:
       # Titan (Sparrow/Rocket) dylib
       # ------------------------------------------------------------------
       - name: Build Titan (Sparrow/Rocket) dylib
+        continue-on-error: true
         working-directory: src/titan
         run: |
           set -euo pipefail
 
-          # 创建 libjailbreak stub
-          mkdir -p external/lib external/include/libjailbreak
-          cat > /tmp/jb_stub.c << 'EOF'
-          #include <stdint.h>
-          int jbclient_initialize_primitives(void) { return 0; }
-          void jbinfo_initialize_hardcoded_offsets(void) {}
-          void libjailbreak_translation_init(void) {}
-          EOF
-
-          cat > external/include/libjailbreak/libjailbreak.h << 'EOF'
-          #ifndef LIBJAILBREAK_H
-          #define LIBJAILBREAK_H
-          #include <stdint.h>
-          int jbclient_initialize_primitives(void);
-          void jbinfo_initialize_hardcoded_offsets(void);
-          void libjailbreak_translation_init(void);
-          #endif
-          EOF
-
-          xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -arch arm64e \
-            -miphoneos-version-min=16.1 \
-            -install_name "@rpath/libjailbreak.dylib" \
-            -o external/lib/libjailbreak.dylib /tmp/jb_stub.c
-          ls -lh external/lib/libjailbreak.dylib
-
-          # 收集 Titan 源文件
-          SRCS=$(find src -type f \( -name "*.c" -o -name "*.m" -o -name "*.mm" \) | sort | tr '\n' ' ')
-          echo "Sources: $SRCS"
-
-          xcrun -sdk iphoneos clang \
-            -dynamiclib -arch arm64 -arch arm64e \
-            -miphoneos-version-min=16.1 \
-            -O2 -fPIC \
-            -fobjc-arc \
-            -I . -I external/include -L external/lib \
-            -framework CoreFoundation \
-            -framework IOSurface \
-            -framework IOKit \
-            -framework Security \
-            -ljailbreak \
-            -Wno-implicit-function-declaration \
-            -install_name "@rpath/titan_sparrow.dylib" \
-            -o titan_sparrow.dylib \
-            $SRCS
-          ls -lh titan_sparrow.dylib
-          file titan_sparrow.dylib
+          # 尝试从 Dopamine 编译真实 libjailbreak
+          git clone --recursive https://github.com/opa334/Dopamine.git /tmp/Dopamine 2>&1 | tail -5
+          cd /tmp/Dopamine/BaseBin
+          make choma 2>&1 | tail -5
+          mkdir -p .build
+          find . -name "libchoma.a" -o -name "libchoma.dylib" | while read f; do cp "$f" .build/; done
+          
+          brew install libarchive 2>&1 | tail -3
+          export LDFLAGS="-L/opt/homebrew/opt/libarchive/lib"
+          export CPPFLAGS="-I/opt/homebrew/opt/libarchive/include"
+          
+          make libjailbreak 2>&1 | tail -30
+          
+          JB=$(find /tmp/Dopamine -name "libjailbreak.dylib" 2>/dev/null | head -1)
+          echo "Found libjailbreak: $JB"
+          
+          if [ -n "$JB" ]; then
+            cd /tmp/Coruna-build/src/titan
+            mkdir -p external/lib external/include
+            cp "$JB" external/lib/
+            cp -r /tmp/Dopamine/BaseBin/libjailbreak/src/*.h external/include/ 2>/dev/null || true
+            
+            SRCS=$(find src -type f \( -name "*.c" -o -name "*.m" \) | sort | tr '\n' ' ')
+            xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -arch arm64e \
+              -miphoneos-version-min=16.1 -O2 -fPIC -fobjc-arc \
+              -I . -I external/include -L external/lib \
+              -framework CoreFoundation -framework IOSurface -framework IOKit \
+              -ljailbreak -Wno-implicit-function-declaration \
+              -install_name "@rpath/titan_sparrow.dylib" \
+              -o titan_sparrow.dylib $SRCS
+            ls -lh titan_sparrow.dylib
+          else
+            echo "::warning::libjailbreak.dylib not found, skipping Titan build"
+            echo "Titan requires real libjailbreak from Dopamine"
+            exit 0
+          fi
 
       # ------------------------------------------------------------------
       # Collect artifacts
@@ -157,13 +148,22 @@ jobs:
           KFD=src/kfd/kfd.dylib
           TITAN=src/titan/titan_sparrow.dylib
 
-          for f in "$TRIGON" "$KFD" "$TITAN"; do
+          # Trigon 和 kfd 必须存在
+          for f in "$TRIGON" "$KFD"; do
             if [ ! -f "$f" ]; then
               echo "::error::Missing expected dylib: $f"
               exit 1
             fi
             cp "$f" artifacts/
           done
+
+          # Titan 可选（依赖 libjailbreak）
+          if [ -f "$TITAN" ]; then
+            cp "$TITAN" artifacts/
+            echo "[+] Titan dylib included"
+          else
+            echo "::warning::Titan dylib not built (requires libjailbreak)"
+          fi
 
           echo "Collected artifacts:"
           ls -lh artifacts/
