@@ -53,7 +53,7 @@ jobs:
           #include <stdio.h>
           #include <stdint.h>
           #include <assert.h>
-          #include "libkfd/libkfd.h"
+          #include "libkfd.h"
 
           typedef uint64_t u64;
 
@@ -71,16 +71,13 @@ jobs:
           }
           EOF
 
-          # 收集所有头文件目录（子目录也需要）
-          INCLUDES=$(find libkfd -type d | sed 's/^/-I /' | tr '\n' ' ')
-          echo "Includes: $INCLUDES"
-
           xcrun -sdk iphoneos clang \
             -dynamiclib -arch arm64 \
             -miphoneos-version-min=16.0 \
             -O2 -fPIC \
-            -I . \
-            $INCLUDES \
+            -I libkfd \
+            -I libkfd/krkw -I libkfd/krkw/kread -I libkfd/krkw/kwrite \
+            -I libkfd/info -I libkfd/puaf \
             -Wno-implicit-function-declaration \
             -Wno-unused-variable \
             -Wno-incompatible-pointer-types \
