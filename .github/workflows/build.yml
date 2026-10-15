@@ -33,69 +33,60 @@ CEOF
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Clone Dopamine and compile libjailbreak
+      - name: Clone Dopamine with submodules and compile libjailbreak
         run: |
-          git clone --depth 1 https://github.com/opa334/Dopamine.git /tmp/Dopamine 2>&1 || echo "clone failed, using stub"
+          echo "[1/4] Cloning Dopamine with submodules..."
+          rm -rf /tmp/Dopamine
+          git clone --recursive https://github.com/opa334/Dopamine.git /tmp/Dopamine 2>&1 | tail -5
           
-          # 查找 libjailbreak 源码
-          JB_SRC=$(find /tmp/Dopamine -name "libjailbreak" -type d 2>/dev/null | head -1)
-          echo "libjailbreak source: $JB_SRC"
+          echo "[2/4] Verifying submodules..."
+          ls /tmp/Dopamine/BaseBin/_external/choma/src/MachO.h 2>/dev/null && echo "choma OK" || echo "choma MISSING"
+          ls /tmp/Dopamine/BaseBin/.include/xpc_private.h 2>/dev/null && echo "xpc_private.h OK" || echo "xpc_private.h MISSING"
+          cd /tmp/Dopamine && git submodule status | head -10
           
-          if [ -n "$JB_SRC" ] && [ -f "$JB_SRC/Makefile" ]; then
-            echo "[*] Found libjailbreak with Makefile, compiling..."
-            cd "$JB_SRC"
-            make 2>&1 | tail -20 || echo "make failed"
-          fi
+          echo "[3/4] Finding libjailbreak source..."
+          JB_DIR=$(find /tmp/Dopamine -path "*/BaseBin/libjailbreak" -type d 2>/dev/null | head -1)
+          echo "JB_DIR: $JB_DIR"
           
-          # 检查是否已有编译产物
-          JB_DYLIB=$(find /tmp/Dopamine -name "libjailbreak.dylib" 2>/dev/null | head -1)
-          
-          if [ -z "$JB_DYLIB" ]; then
-            echo "[!] libjailbreak.dylib not found, trying direct compilation..."
+          if [ -n "$JB_DIR" ]; then
+            cd "$JB_DIR"
+            ls *.h *.c 2>/dev/null | head -20
             
-            # 找到源文件
-            JB_DIR=$(find /tmp/Dopamine -path "*/BaseBin/libjailbreak" -type d 2>/dev/null | head -1)
-            if [ -z "$JB_DIR" ]; then
-              JB_DIR=$(find /tmp/Dopamine -name "libjailbreak" -type d 2>/dev/null | head -1)
+            echo "[4/4] Compiling libjailbreak..."
+            # 检查是否有 Makefile
+            if [ -f Makefile ]; then
+              echo "Found Makefile, using xcrun..."
+              # 修改 Makefile 使用 xcrun
+              make CC="xcrun -sdk iphoneos clang" \
+                   CXX="xcrun -sdk iphoneos clang++" \
+                   CFLAGS="-arch arm64 -arch arm64e -isysroot $(xcrun --sdk iphoneos --show-sdk-path)" \
+                   2>&1 | tail -30 || echo "make failed, trying direct compile..."
             fi
-            echo "JB_DIR: $JB_DIR"
             
-            if [ -n "$JB_DIR" ]; then
-              cd "$JB_DIR"
-              # 收集所有源文件
-              SRCS=$(find . -name '*.c' -o -name '*.m' 2>/dev/null | grep -v test | head -30)
-              echo "Sources: $SRCS"
-              
-              # 创建头文件目录
-              mkdir -p /tmp/jb_headers
-              find . -name '*.h' -exec cp {} /tmp/jb_headers/ \; 2>/dev/null
-              
-              # 编译
+            # 如果 make 失败，直接编译
+            if [ ! -f /tmp/libjailbreak.dylib ]; then
+              SRCS=$(find . -name '*.c' -o -name '*.m' 2>/dev/null | grep -v test | grep -v main | head -30)
+              echo "Direct compile with $SRCS"
               xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -arch arm64e \
                 -miphoneos-version-min=16.1 -O2 -fPIC \
-                -I . -I /tmp/jb_headers \
+                -I . -I .. -I ../.include -I ../_external/choma/src \
                 -framework Foundation -framework IOKit \
                 -Wno-implicit-function-declaration -Wno-unused-variable \
                 -Wno-incompatible-pointer-types -Wno-int-conversion \
                 -install_name @rpath/libjailbreak.dylib \
-                -o /tmp/libjailbreak.dylib \
-                $SRCS 2>&1 | tail -20
+                -o /tmp/libjailbreak.dylib $SRCS 2>&1 | tail -20
             fi
-          else
-            echo "[+] Found pre-built: $JB_DYLIB"
-            cp "$JB_DYLIB" /tmp/libjailbreak.dylib
           fi
           
-          # 如果还是没有，用 stub
+          # Fallback stub
           if [ ! -f /tmp/libjailbreak.dylib ]; then
-            echo "[!] Using stub libjailbreak..."
+            echo "[!] Using stub..."
             printf '#include <stdint.h>\nint jbclient_initialize_primitives(void){return 0;}\nvoid jbinfo_initialize_hardcoded_offsets(void){}\nvoid libjailbreak_translation_init(void){}\n' > /tmp/jb_stub.c
             xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -arch arm64e \
               -miphoneos-version-min=16.1 \
               -install_name @rpath/libjailbreak.dylib \
               -o /tmp/libjailbreak.dylib /tmp/jb_stub.c
           fi
-          
           ls -lh /tmp/libjailbreak.dylib
 
       - name: Build Titan dylib
