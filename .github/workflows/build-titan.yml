@@ -1,44 +1,114 @@
-name: Build Titan
+name: Build titan_sparrow.dylib
 on:
   workflow_dispatch:
-jobs:
-  titan:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Build libjailbreak from Dopamine
+jobs:
+  build-titan:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Show toolchain info
         run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos --show-sdk-version
+          which ldid || brew list ldid || true
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          brew install libarchive ldid || true
+          echo "libarchive prefix: $(brew --prefix libarchive)"
+          echo "ldid: $(which ldid || echo 'not found')"
+
+      # ------------------------------------------------------------------
+      # 1. 克隆 Dopamine（含子模块）
+      # ------------------------------------------------------------------
+      - name: Clone Dopamine (recursive)
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/Dopamine
           git clone --recursive https://github.com/opa334/Dopamine.git /tmp/Dopamine
-          cd /tmp/Dopamine/BaseBin
-          make choma 2>&1 | tail -5
+          echo "Dopamine cloned."
+          ls /tmp/Dopamine/BaseBin
+
+      # ------------------------------------------------------------------
+      # 2. 编译 ChOma
+      # ------------------------------------------------------------------
+      - name: Build ChOma
+        working-directory: /tmp/Dopamine/BaseBin
+        run: |
+          set -euo pipefail
+          make choma 2>&1 | tail -20
           mkdir -p .build
-          find . -name "libchoma.a" -o -name "libchoma.dylib" | xargs -I{} cp {} .build/ 2>/dev/null || true
-          brew install libarchive 2>&1 | tail -3
-          export LDFLAGS="-L/opt/homebrew/opt/libarchive/lib"
-          export CPPFLAGS="-I/opt/homebrew/opt/libarchive/include"
-          make libjailbreak 2>&1 | tail -30
+          find . -name "libchoma.a" -o -name "libchoma.dylib" | while read -r f; do
+            echo "Copying $f -> .build/"
+            cp "$f" .build/
+          done
+          ls -lh .build/
+
+      # ------------------------------------------------------------------
+      # 3. 编译 libjailbreak
+      # ------------------------------------------------------------------
+      - name: Build libjailbreak
+        working-directory: /tmp/Dopamine/BaseBin
+        run: |
+          set -euo pipefail
+          make libjailbreak 2>&1 | tail -40 || {
+            echo "::error::make libjailbreak failed"
+            exit 1
+          }
           JB=$(find /tmp/Dopamine -name "libjailbreak.dylib" | head -1)
+          if [ -z "$JB" ]; then
+            echo "::error::libjailbreak.dylib not found"
+            exit 1
+          fi
           echo "libjailbreak: $JB"
           ls -lh "$JB"
+          file "$JB"
+          echo "JB_PATH=$JB" >> "$GITHUB_ENV"
 
+      # ------------------------------------------------------------------
+      # 4. 克隆 Titan
+      # ------------------------------------------------------------------
       - name: Clone Titan
         run: |
-          git clone --depth 1 https://github.com/rafaelhziliao/titan.git /tmp/titan
-          cd /tmp/titan
-          ls src/
+          set -euo pipefail
+          rm -rf /tmp/titan
+          git clone https://github.com/rafaelhziliao/titan.git /tmp/titan
+          ls /tmp/titan
 
-      - name: Build titan_sparrow.dylib
+      # ------------------------------------------------------------------
+      # 5. 复制 libjailbreak 依赖
+      # ------------------------------------------------------------------
+      - name: Prepare Titan dependencies
+        working-directory: /tmp/titan
         run: |
-          cd /tmp/titan
+          set -euo pipefail
           mkdir -p external/lib external/include
-          JB=$(find /tmp/Dopamine -name "libjailbreak.dylib" | head -1)
-          cp "$JB" external/lib/
-          cp /tmp/Dopamine/BaseBin/libjailbreak/src/*.h external/include/
-          
-          SRCS=$(find src -name '*.c' -o -name '*.m' | tr '\n' ' ')
+          cp "$JB_PATH" external/lib/
+          cp /tmp/Dopamine/BaseBin/libjailbreak/src/*.h external/include/ 2>/dev/null || true
+          # 有些头文件可能在子目录
+          find /tmp/Dopamine/BaseBin/libjailbreak -name "*.h" -exec cp {} external/include/ \; 2>/dev/null || true
+          echo "external/lib:"
+          ls -lh external/lib
+          echo "external/include (sample):"
+          ls external/include | head -40
+
+      # ------------------------------------------------------------------
+      # 6. 编译 Titan
+      # ------------------------------------------------------------------
+      - name: Build Titan
+        working-directory: /tmp/titan
+        run: |
+          set -euo pipefail
+          SRCS=$(find src -type f \( -name "*.c" -o -name "*.m" -o -name "*.mm" \) | sort | tr '\n' ' ')
           echo "Sources: $SRCS"
-          
           xcrun -sdk iphoneos clang \
             -dynamiclib -arch arm64 -arch arm64e \
             -miphoneos-version-min=16.1 \
@@ -49,15 +119,55 @@ jobs:
             -framework IOKit \
             -ljailbreak \
             -Wno-implicit-function-declaration \
-            -Wno-unused-variable -Wno-incompatible-pointer-types \
             -install_name "@rpath/titan_sparrow.dylib" \
             -o titan_sparrow.dylib \
             $SRCS
           ls -lh titan_sparrow.dylib
           file titan_sparrow.dylib
 
-      - name: Upload
+      # ------------------------------------------------------------------
+      # 7. 签名
+      # ------------------------------------------------------------------
+      - name: Sign Titan dylib
+        working-directory: /tmp/titan
+        run: |
+          set -euo pipefail
+          ldid -S titan_sparrow.dylib
+          echo "Signed."
+          ldid -e titan_sparrow.dylib | head -20 || true
+
+      # ------------------------------------------------------------------
+      # 8. 验证
+      # ------------------------------------------------------------------
+      - name: Verify Titan dylib
+        working-directory: /tmp/titan
+        run: |
+          set -euo pipefail
+          ls -lh titan_sparrow.dylib
+          file titan_sparrow.dylib
+          echo "--- Linked libraries ---"
+          otool -L titan_sparrow.dylib
+          echo "--- Architectures ---"
+          lipo -info titan_sparrow.dylib
+
+      # ------------------------------------------------------------------
+      # 9. 收集产物
+      # ------------------------------------------------------------------
+      - name: Collect artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp /tmp/titan/titan_sparrow.dylib artifacts/
+          # 附带 libjailbreak，方便调试
+          cp "$JB_PATH" artifacts/libjailbreak.dylib || true
+          ls -lh artifacts/
+
+      # ------------------------------------------------------------------
+      # 10. 上传产物
+      # ------------------------------------------------------------------
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: titan-sparrow
-          path: /tmp/titan/titan_sparrow.dylib
+          name: titan-sparrow-dylib
+          path: artifacts/*.dylib
+          if-no-files-found: error
