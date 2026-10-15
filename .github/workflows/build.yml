@@ -48,38 +48,47 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 创建 wrapper
+          # kfd 是纯头文件库，直接 include libkfd.h 即可
           cat > /tmp/kfd_wrapper.c << 'EOF'
+          #include <stdio.h>
           #include <stdint.h>
-          extern uint64_t kopen(uint64_t puaf_pages, uint64_t puaf_method, uint64_t kread_method, uint64_t kwrite_method);
-          extern void kread(uint64_t kfd, uint64_t kaddr, void* uaddr, uint64_t size);
-          extern void kwrite(uint64_t kfd, void* uaddr, uint64_t kaddr, uint64_t size);
-          extern void kclose(uint64_t kfd);
-          uint64_t kfd_open(uint64_t pages, int method) { return kopen(pages, (uint64_t)method, 0, 0); }
-          void kfd_read(uint64_t kfd, uint64_t addr, void *buf, uint64_t size) { kread(kfd, addr, buf, size); }
-          void kfd_write(uint64_t kfd, void *buf, uint64_t addr, uint64_t size) { kwrite(kfd, buf, addr, size); }
-          void kfd_close(uint64_t kfd) { kclose(kfd); }
+          #include <assert.h>
+          #include "libkfd/libkfd.h"
+
+          typedef uint64_t u64;
+
+          u64 kfd_open(u64 pages, int method) {
+              return kopen(pages, (u64)method, 0, 0);
+          }
+          void kfd_read(u64 kfd, u64 addr, void *buf, u64 size) {
+              kread(kfd, addr, buf, size);
+          }
+          void kfd_write(u64 kfd, void *buf, u64 addr, u64 size) {
+              kwrite(kfd, buf, addr, size);
+          }
+          void kfd_close(u64 kfd) {
+              (void)kfd;
+          }
           EOF
 
-          # 只选取 iOS / arm64 相关源文件，避免混入其他平台
-          SRCS=$(find libkfd -type f \( -name "*.c" \) \
-            ! -path "*/macos/*" \
-            ! -path "*/linux/*" \
-            ! -path "*/android/*" \
-            | sort | tr '\n' ' ')
-          echo "Sources: $SRCS"
+          # 收集所有头文件目录（子目录也需要）
+          INCLUDES=$(find libkfd -type d | sed 's/^/-I /' | tr '\n' ' ')
+          echo "Includes: $INCLUDES"
 
           xcrun -sdk iphoneos clang \
-            -dynamiclib -arch arm64 -arch arm64e \
+            -dynamiclib -arch arm64 \
             -miphoneos-version-min=16.0 \
             -O2 -fPIC \
-            -I libkfd \
-            -framework CoreFoundation \
-            -framework IOKit \
+            -I . \
+            $INCLUDES \
             -Wno-implicit-function-declaration \
+            -Wno-unused-variable \
+            -Wno-incompatible-pointer-types \
+            -Wno-int-conversion \
+            -Wno-pointer-sign \
             -install_name "@rpath/kfd.dylib" \
             -o kfd.dylib \
-            /tmp/kfd_wrapper.c $SRCS
+            /tmp/kfd_wrapper.c
           ls -lh kfd.dylib
           file kfd.dylib
 
