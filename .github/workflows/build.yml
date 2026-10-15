@@ -16,7 +16,8 @@ jobs:
 
       - name: Build Trigon (Photon) dylib
         run: |
-          cd server/_exploits/Trigon-Photon/Trigon/Exploit
+          git clone --depth 1 https://github.com/alfiecg24/Trigon.git /tmp/Trigon
+          cd /tmp/Trigon/Trigon/Exploit
           xcrun -sdk iphoneos clang \
             -dynamiclib -arch arm64 -arch arm64e \
             -miphoneos-version-min=13.0 \
@@ -29,6 +30,7 @@ jobs:
             *.c *.S
           ldid -S trigon_photon.dylib
           ls -lh trigon_photon.dylib
+          cp trigon_photon.dylib /tmp/trigon_photon.dylib
 
       - name: Build libjailbreak from Dopamine
         run: |
@@ -52,7 +54,7 @@ jobs:
 
       - name: Build kfd dylib
         run: |
-          cd server/_exploits/kfd-ios16
+          cd src/kfd
           cat > /tmp/kfd_wrapper.c << 'EOF'
           #include <stdint.h>
           extern uint64_t kopen(uint64_t puaf_pages, uint64_t puaf_method, uint64_t kread_method, uint64_t kwrite_method);
@@ -80,7 +82,7 @@ jobs:
 
       - name: Build Titan (Sparrow/Rocket) dylib
         run: |
-          cd server/_exploits/titan-Sparrow-Rocket
+          cd src/titan
           JB=$(find /tmp/Dopamine -name "libjailbreak.dylib" | head -1)
           if [ -z "$JB" ]; then
             JB="/tmp/Dopamine/BaseBin/libjailbreak.dylib"
@@ -107,9 +109,9 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
-          cp server/_exploits/Trigon-Photon/Trigon/Exploit/trigon_photon.dylib artifacts/ 2>/dev/null || true
-          cp server/_exploits/kfd-ios16/kfd.dylib artifacts/ 2>/dev/null || true
-          cp server/_exploits/titan-Sparrow-Rocket/titan_sparrow.dylib artifacts/ 2>/dev/null || true
+          cp /tmp/trigon_photon.dylib artifacts/ 2>/dev/null || true
+          cp src/kfd/kfd.dylib artifacts/ 2>/dev/null || true
+          cp src/titan/titan_sparrow.dylib artifacts/ 2>/dev/null || true
           ls -lh artifacts/
 
       - name: Upload dylibs
