@@ -1,0 +1,63 @@
+name: Build Titan
+on:
+  workflow_dispatch:
+jobs:
+  titan:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build libjailbreak from Dopamine
+        run: |
+          git clone --recursive https://github.com/opa334/Dopamine.git /tmp/Dopamine
+          cd /tmp/Dopamine/BaseBin
+          make choma 2>&1 | tail -5
+          mkdir -p .build
+          find . -name "libchoma.a" -o -name "libchoma.dylib" | xargs -I{} cp {} .build/ 2>/dev/null || true
+          brew install libarchive 2>&1 | tail -3
+          export LDFLAGS="-L/opt/homebrew/opt/libarchive/lib"
+          export CPPFLAGS="-I/opt/homebrew/opt/libarchive/include"
+          make libjailbreak 2>&1 | tail -30
+          JB=$(find /tmp/Dopamine -name "libjailbreak.dylib" | head -1)
+          echo "libjailbreak: $JB"
+          ls -lh "$JB"
+
+      - name: Clone Titan
+        run: |
+          git clone --depth 1 https://github.com/rafaelhziliao/titan.git /tmp/titan
+          cd /tmp/titan
+          ls src/
+
+      - name: Build titan_sparrow.dylib
+        run: |
+          cd /tmp/titan
+          mkdir -p external/lib external/include
+          JB=$(find /tmp/Dopamine -name "libjailbreak.dylib" | head -1)
+          cp "$JB" external/lib/
+          cp /tmp/Dopamine/BaseBin/libjailbreak/src/*.h external/include/
+          
+          SRCS=$(find src -name '*.c' -o -name '*.m' | tr '\n' ' ')
+          echo "Sources: $SRCS"
+          
+          xcrun -sdk iphoneos clang \
+            -dynamiclib -arch arm64 -arch arm64e \
+            -miphoneos-version-min=16.1 \
+            -O2 -fPIC -fobjc-arc \
+            -I . -I external/include -L external/lib \
+            -framework CoreFoundation \
+            -framework IOSurface \
+            -framework IOKit \
+            -ljailbreak \
+            -Wno-implicit-function-declaration \
+            -Wno-unused-variable -Wno-incompatible-pointer-types \
+            -install_name "@rpath/titan_sparrow.dylib" \
+            -o titan_sparrow.dylib \
+            $SRCS
+          ls -lh titan_sparrow.dylib
+          file titan_sparrow.dylib
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: titan-sparrow
+          path: /tmp/titan/titan_sparrow.dylib
