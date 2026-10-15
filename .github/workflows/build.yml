@@ -1,125 +1,119 @@
-name: Build Titan + kfd
-on: workflow_dispatch
+name: Build iOS dylibs
+on:
+  workflow_dispatch:
 jobs:
-  kfd:
+  build-all:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install libarchive
+          curl -LO https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid_macosx_arm64
+          chmod +x ldid_macosx_arm64
+          sudo mv ldid_macosx_arm64 /usr/local/bin/ldid
+
+      - name: Build Trigon (Photon) dylib
+        run: |
+          cd server/_exploits/Trigon-Photon/Trigon/Exploit
+          xcrun -sdk iphoneos clang \
+            -dynamiclib -arch arm64 -arch arm64e \
+            -miphoneos-version-min=13.0 \
+            -O2 -fPIC \
+            -framework CoreFoundation \
+            -framework IOSurface \
+            -framework IOKit \
+            -install_name "@rpath/trigon_photon.dylib" \
+            -o trigon_photon.dylib \
+            *.c *.S
+          ldid -S trigon_photon.dylib
+          ls -lh trigon_photon.dylib
+
+      - name: Build libjailbreak from Dopamine
+        run: |
+          git clone --recursive https://github.com/opa334/Dopamine.git /tmp/Dopamine
+          cd /tmp/Dopamine/BaseBin
+          make libjailbreak 2>&1 || {
+            cd /tmp/Dopamine/BaseBin
+            SRCS=$(find libjailbreak/src -name "*.c" -o -name "*.m" | tr '\n' ' ')
+            xcrun -sdk iphoneos clang \
+              -dynamiclib -arch arm64 -arch arm64e \
+              -miphoneos-version-min=15.0 \
+              -I libjailbreak/src \
+              -I _external/include \
+              -I ChOma/include \
+              -framework CoreFoundation \
+              -framework IOKit \
+              -o /tmp/libjailbreak.dylib \
+              $SRCS
+          }
+          ls -lh /tmp/libjailbreak.dylib 2>/dev/null || ls -lh /tmp/Dopamine/BaseBin/libjailbreak.dylib
+
       - name: Build kfd dylib
         run: |
-          cd src/kfd
-          cat > /tmp/kfd_main.c << 'CEOF'
-#include <stdio.h>
-#include <stdint.h>
-#include "libkfd/libkfd.h"
-typedef uint64_t u64;
-u64 kfd_open(u64 p, int m) { return kopen(p,(u64)m,0,0); }
-void kfd_read(u64 f, u64 a, void *b, u64 s) { kread(f,a,b,s); }
-void kfd_write(u64 f, void *b, u64 a, u64 s) { kwrite(f,b,a,s); }
-void kfd_close(u64 f) { (void)f; }
-CEOF
-          xcrun -sdk iphoneos clang -dynamiclib -arch arm64 \
-            -miphoneos-version-min=16.0 -O2 -fPIC -I . \
-            -Wno-implicit-function-declaration -Wno-unused-variable \
-            -Wno-incompatible-pointer-types -Wno-int-conversion -Wno-pointer-sign \
-            -install_name @rpath/kfd.dylib -o kfd.dylib /tmp/kfd_main.c
+          cd server/_exploits/kfd-ios16
+          cat > /tmp/kfd_wrapper.c << 'EOF'
+          #include <stdint.h>
+          extern uint64_t kopen(uint64_t puaf_pages, uint64_t puaf_method, uint64_t kread_method, uint64_t kwrite_method);
+          extern void kread(uint64_t kfd, uint64_t kaddr, void* uaddr, uint64_t size);
+          extern void kwrite(uint64_t kfd, void* uaddr, uint64_t kaddr, uint64_t size);
+          extern void kclose(uint64_t kfd);
+          uint64_t kfd_open(uint64_t pages, int method) { return kopen(pages, (uint64_t)method, 0, 0); }
+          void kfd_read(uint64_t kfd, uint64_t addr, void *buf, uint64_t size) { kread(kfd, addr, buf, size); }
+          void kfd_write(uint64_t kfd, void *buf, uint64_t addr, uint64_t size) { kwrite(kfd, buf, addr, size); }
+          void kfd_close(uint64_t kfd) { kclose(kfd); }
+          EOF
+          INCLUDES=$(find kfd/libkfd -type d | sed 's/^/-I /' | tr '\n' ' ')
+          SRCS=$(find kfd/libkfd -name "*.c" | tr '\n' ' ')
+          xcrun -sdk iphoneos clang \
+            -dynamiclib -arch arm64 \
+            -miphoneos-version-min=16.0 \
+            -O2 -fPIC \
+            $INCLUDES \
+            -Wno-implicit-function-declaration \
+            -install_name "@rpath/kfd.dylib" \
+            -o kfd.dylib \
+            /tmp/kfd_wrapper.c $SRCS
+          ldid -S kfd.dylib
           ls -lh kfd.dylib
-      - uses: actions/upload-artifact@v4
-        with:
-          name: kfd
-          path: src/kfd/kfd.dylib
 
-  titan:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Clone Dopamine with submodules and compile libjailbreak
+      - name: Build Titan (Sparrow/Rocket) dylib
         run: |
-          echo "[1/4] Cloning Dopamine with submodules..."
-          rm -rf /tmp/Dopamine
-          git clone --recursive https://github.com/opa334/Dopamine.git /tmp/Dopamine 2>&1 | tail -5
-          
-          echo "[2/4] Verifying submodules..."
-          ls /tmp/Dopamine/BaseBin/_external/choma/src/MachO.h 2>/dev/null && echo "choma OK" || echo "choma MISSING"
-          ls /tmp/Dopamine/BaseBin/.include/xpc_private.h 2>/dev/null && echo "xpc_private.h OK" || echo "xpc_private.h MISSING"
-          cd /tmp/Dopamine && git submodule status | head -10
-          
-          echo "[3/4] Finding libjailbreak source..."
-          JB_DIR=$(find /tmp/Dopamine -path "*/BaseBin/libjailbreak" -type d 2>/dev/null | head -1)
-          echo "JB_DIR: $JB_DIR"
-          
-          if [ -n "$JB_DIR" ]; then
-            cd "$JB_DIR"
-            ls *.h *.c 2>/dev/null | head -20
-            
-            echo "[4/4] Compiling libjailbreak..."
-            # 检查是否有 Makefile
-            if [ -f Makefile ]; then
-              echo "Found Makefile, using xcrun..."
-              # 修改 Makefile 使用 xcrun
-              make CC="xcrun -sdk iphoneos clang" \
-                   CXX="xcrun -sdk iphoneos clang++" \
-                   CFLAGS="-arch arm64 -arch arm64e -isysroot $(xcrun --sdk iphoneos --show-sdk-path)" \
-                   2>&1 | tail -30 || echo "make failed, trying direct compile..."
-            fi
-            
-            # 如果 make 失败，直接编译
-            if [ ! -f /tmp/libjailbreak.dylib ]; then
-              SRCS=$(find . -name '*.c' -o -name '*.m' 2>/dev/null | grep -v test | grep -v main | head -30)
-              echo "Direct compile with $SRCS"
-              xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -arch arm64e \
-                -miphoneos-version-min=16.1 -O2 -fPIC \
-                -I . -I .. -I ../.include -I ../_external/choma/src \
-                -framework Foundation -framework IOKit \
-                -Wno-implicit-function-declaration -Wno-unused-variable \
-                -Wno-incompatible-pointer-types -Wno-int-conversion \
-                -install_name @rpath/libjailbreak.dylib \
-                -o /tmp/libjailbreak.dylib $SRCS 2>&1 | tail -20
-            fi
+          cd server/_exploits/titan-Sparrow-Rocket
+          JB=$(find /tmp/Dopamine -name "libjailbreak.dylib" | head -1)
+          if [ -z "$JB" ]; then
+            JB="/tmp/Dopamine/BaseBin/libjailbreak.dylib"
           fi
-          
-          # Fallback stub
-          if [ ! -f /tmp/libjailbreak.dylib ]; then
-            echo "[!] Using stub..."
-            printf '#include <stdint.h>\nint jbclient_initialize_primitives(void){return 0;}\nvoid jbinfo_initialize_hardcoded_offsets(void){}\nvoid libjailbreak_translation_init(void){}\n' > /tmp/jb_stub.c
-            xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -arch arm64e \
-              -miphoneos-version-min=16.1 \
-              -install_name @rpath/libjailbreak.dylib \
-              -o /tmp/libjailbreak.dylib /tmp/jb_stub.c
-          fi
-          ls -lh /tmp/libjailbreak.dylib
-
-      - name: Build Titan dylib
-        run: |
-          cd src/titan
-          mkdir -p external/lib external/include/libjailbreak
-          cp /tmp/libjailbreak.dylib external/lib/
-          
-          # 创建头文件
-          cat > external/include/libjailbreak/libjailbreak.h << 'HEOF'
-#ifndef LIBJAILBREAK_H
-#define LIBJAILBREAK_H
-#include <stdint.h>
-#include <mach/mach.h>
-int jbclient_initialize_primitives(void);
-void jbinfo_initialize_hardcoded_offsets(void);
-void libjailbreak_translation_init(void);
-#endif
-HEOF
-          
-          SRCS=$(find src -name '*.c' -o -name '*.m' | tr '\n' ' ')
-          echo "Compiling Titan..."
-          xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -arch arm64e \
-            -miphoneos-version-min=16.1 -O2 -fPIC \
-            -I . -I external/include -L external/lib \
+          mkdir -p external/lib external/include
+          cp "$JB" external/lib/libjailbreak.dylib
+          cp -r /tmp/Dopamine/BaseBin/libjailbreak/src/*.h external/include/ 2>/dev/null || true
+          SRCS=$(find src -name "*.c" -o -name "*.m" | tr '\n' ' ')
+          xcrun -sdk iphoneos clang \
+            -dynamiclib -arch arm64 -arch arm64e \
+            -miphoneos-version-min=16.1 \
+            -O2 -fPIC \
+            -I . -I external/include \
+            -L external/lib \
             -framework CoreFoundation -framework IOSurface -framework IOKit \
-            -ljailbreak -Wno-implicit-function-declaration \
-            -Wno-unused-variable -Wno-incompatible-pointer-types \
-            -Wno-int-conversion -Wno-pointer-sign \
-            -install_name @rpath/titan_sparrow.dylib \
-            -o titan_sparrow.dylib $SRCS 2>&1
+            -ljailbreak \
+            -Wno-implicit-function-declaration \
+            -install_name "@rpath/titan_sparrow.dylib" \
+            -o titan_sparrow.dylib \
+            $SRCS
+          ldid -S titan_sparrow.dylib
           ls -lh titan_sparrow.dylib
-      - uses: actions/upload-artifact@v4
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          cp server/_exploits/Trigon-Photon/Trigon/Exploit/trigon_photon.dylib artifacts/ 2>/dev/null || true
+          cp server/_exploits/kfd-ios16/kfd.dylib artifacts/ 2>/dev/null || true
+          cp server/_exploits/titan-Sparrow-Rocket/titan_sparrow.dylib artifacts/ 2>/dev/null || true
+          ls -lh artifacts/
+
+      - name: Upload dylibs
+        uses: actions/upload-artifact@v4
         with:
-          name: titan-sparrow
-          path: src/titan/titan_sparrow.dylib
+          name: ios-dylibs
+          path: artifacts/*.dylib
