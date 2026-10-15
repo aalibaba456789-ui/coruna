@@ -75,6 +75,7 @@ jobs:
             -dynamiclib -arch arm64 \
             -miphoneos-version-min=16.0 \
             -O2 -fPIC \
+            -I . \
             -I libkfd \
             -I libkfd/krkw -I libkfd/krkw/kread -I libkfd/krkw/kwrite \
             -I libkfd/info -I libkfd/puaf \
