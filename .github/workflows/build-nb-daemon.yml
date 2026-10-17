@@ -1,0 +1,61 @@
+name: Build nb_daemon (arm64 + arm64e)
+on:
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  build-nb-daemon:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show toolchain info
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      # ------------------------------------------------------------------
+      # nb_daemon.dylib — powerd 进程 IPC 守护进程
+      # arm64: A11 及以下 (无 PAC)；arm64e: A12+
+      # ------------------------------------------------------------------
+      - name: Build nb_daemon.dylib
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          xcrun -sdk iphoneos clang \
+            -dynamiclib -arch arm64 -arch arm64e \
+            -miphoneos-version-min=13.0 \
+            -O2 -fPIC -fblocks \
+            -framework Foundation \
+            -install_name "nb_daemon.dylib" \
+            -o nb_daemon.dylib nb_daemon.c
+          ls -lh nb_daemon.dylib
+          file nb_daemon.dylib
+
+      - name: Sign with ldid
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          if ! command -v ldid >/dev/null 2>&1; then
+            brew install ldid 2>&1 | tail -3
+          fi
+          command -v ldid
+          ldid -S nb_daemon.dylib
+          echo "--- entitlements (empty expected) ---"
+          ldid -e nb_daemon.dylib | head -20 || true
+          file nb_daemon.dylib
+
+      - name: Collect artifact
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp src/nb_daemon/nb_daemon.dylib artifacts/
+          ls -lh artifacts/
+
+      - name: Upload nb_daemon
+        uses: actions/upload-artifact@v4
+        with:
+          name: nb_daemon
+          path: artifacts/nb_daemon.dylib
+          if-no-files-found: error
