@@ -1,0 +1,52 @@
+name: Build nb_daemon_http (arm64e, HTTP C2)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/nb_daemon/nb_daemon_http.c'
+      - '.github/workflows/build-nb-daemon-http.yml'
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Build arm64e dylib
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          xcrun -sdk iphoneos clang \
+            -dynamiclib -arch arm64e \
+            -miphoneos-version-min=13.0 \
+            -O2 -fPIC -fblocks \
+            -framework Foundation -framework CoreFoundation -framework CFNetwork \
+            -install_name "nb_daemon_http.dylib" \
+            -o nb_daemon_http.dylib nb_daemon_http.c
+          ls -lh nb_daemon_http.dylib
+          file nb_daemon_http.dylib
+
+      - name: Sign with ldid
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          command -v ldid >/dev/null 2>&1 || brew install ldid
+          ldid -S nb_daemon_http.dylib
+          file nb_daemon_http.dylib
+
+      - name: Artifact
+        run: |
+          mkdir -p artifacts
+          cp src/nb_daemon/nb_daemon_http.dylib artifacts/
+          ls -lh artifacts/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nb_daemon_http
+          path: artifacts/nb_daemon_http.dylib
+          if-no-files-found: error
