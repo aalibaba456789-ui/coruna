@@ -10,22 +10,25 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-
-      - name: Show SDK
-        run: xcrun --sdk iphoneos --show-sdk-path
-
       - name: Compile arm64e dylib
+        working-directory: src/nb_last
         run: |
-          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          clang -target arm64e-apple-ios14.0 -isysroot "$SDK" \
-                -dynamiclib -O2 -fno-objc-arc \
-                -o nb_last.dylib nb_last.c
-          ls -l nb_last.dylib
-          /usr/bin/otool -L nb_last.dylib || true
-          /usr/bin/nm -gU nb_last.dylib | head -20 || true
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+          set -euo pipefail
+          xcrun -sdk iphoneos clang -dynamiclib -arch arm64e \
+            -miphoneos-version-min=14.0 -O2 -fPIC -fblocks \
+            -install_name nb_last.dylib -o nb_last.dylib nb_last.c
+          ls -lh nb_last.dylib
+          file nb_last.dylib
+          nm -gU nb_last.dylib | head -20 || true
+      - name: Sign
+        working-directory: src/nb_last
+        run: |
+          set -euo pipefail
+          command -v ldid >/dev/null 2>&1 || brew install ldid >/dev/null 2>&1
+          ldid -S nb_last.dylib
+          file nb_last.dylib
+      - uses: actions/upload-artifact@v4
         with:
-          name: nb_last-dylib
-          path: nb_last.dylib
+          name: nb_last
+          path: src/nb_last/nb_last.dylib
+          if-no-files-found: error
