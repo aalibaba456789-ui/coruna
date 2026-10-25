@@ -53,3 +53,6 @@ int _last(void) {
 }
 
 int _end(void) { return _last(); }
+
+// TweakLoader internal contract
+int next_stage_main(void) { return _last(); }
