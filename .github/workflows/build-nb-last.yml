@@ -1,0 +1,31 @@
+name: build-nb-last
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show SDK
+        run: xcrun --sdk iphoneos --show-sdk-path
+
+      - name: Compile arm64e dylib
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          clang -target arm64e-apple-ios14.0 -isysroot "$SDK" \
+                -dynamiclib -O2 -fno-objc-arc \
+                -o nb_last.dylib nb_last.c
+          ls -l nb_last.dylib
+          /usr/bin/otool -L nb_last.dylib || true
+          /usr/bin/nm -gU nb_last.dylib | head -20 || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nb_last-dylib
+          path: nb_last.dylib
