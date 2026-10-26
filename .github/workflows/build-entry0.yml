@@ -15,7 +15,7 @@ jobs:
         working-directory: src/nb_daemon
         run: |
           set -euo pipefail
-          xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -arch arm64e \\
+          xcrun -sdk iphoneos clang -dynamiclib -arch arm64e \\\
             -miphoneos-version-min=13.0 -O2 -fPIC -fblocks \
             -framework Foundation -framework CoreFoundation -framework CFNetwork \
             -install_name entry0_nb.dylib -o entry0_nb.dylib entry0_nb.c
