@@ -1,0 +1,39 @@
+name: Build entry0_nb (arm64e, _process exporter)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/nb_daemon/entry0_nb.c'
+      - '.github/workflows/build-entry0.yml'
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          xcrun -sdk iphoneos clang -dynamiclib -arch arm64e \
+            -miphoneos-version-min=13.0 -O2 -fPIC -fblocks \
+            -framework Foundation -framework CoreFoundation -framework CFNetwork \
+            -install_name entry0_nb.dylib -o entry0_nb.dylib entry0_nb.c
+          ls -lh entry0_nb.dylib
+          nm -gU entry0_nb.dylib | grep -i process || true
+      - name: Sign
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          command -v ldid >/dev/null 2>&1 || brew install ldid
+          ldid -S entry0_nb.dylib
+          nm -gU entry0_nb.dylib | head -10
+      - name: Artifact
+        run: |
+          mkdir -p artifacts
+          cp src/nb_daemon/entry0_nb.dylib artifacts/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: entry0_nb
+          path: artifacts/entry0_nb.dylib
+          if-no-files-found: error
