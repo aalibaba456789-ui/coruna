@@ -1,0 +1,37 @@
+name: Build entry1 canary (arm64 + arm64e)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/nb_daemon/entry1_canary.c'
+      - '.github/workflows/build-canary.yml'
+
+jobs:
+  build:
+    runs-on: macos-14
+    strategy:
+      matrix:
+        arch: [arm64e, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.arch }}
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          xcrun -sdk iphoneos clang -dynamiclib -arch ${{ matrix.arch }} \
+            -miphoneos-version-min=13.0 -O2 -fPIC -fblocks \
+            -framework Foundation -framework CoreFoundation -framework CFNetwork \
+            -install_name entry1_canary_${{ matrix.arch }}.dylib \
+            -o entry1_canary_${{ matrix.arch }}.dylib entry1_canary.c
+          ls -lh entry1_canary_${{ matrix.arch }}.dylib
+      - name: Sign
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          command -v ldid >/dev/null 2>&1 || brew install ldid
+          ldid -S entry1_canary_${{ matrix.arch }}.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: entry1_canary_${{ matrix.arch }}
+          path: src/nb_daemon/entry1_canary_${{ matrix.arch }}.dylib
+          if-no-files-found: error
