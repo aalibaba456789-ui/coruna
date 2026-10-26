@@ -20,14 +20,12 @@ jobs:
             -framework Foundation -framework CoreFoundation -framework CFNetwork \
             -install_name entry0_nb.dylib -o entry0_nb.dylib entry0_nb.c
           ls -lh entry0_nb.dylib
-          nm -gU entry0_nb.dylib | grep -i process || true
       - name: Sign
         working-directory: src/nb_daemon
         run: |
           set -euo pipefail
           command -v ldid >/dev/null 2>&1 || brew install ldid
           ldid -S entry0_nb.dylib
-          nm -gU entry0_nb.dylib \|\| true
       - name: Artifact
         run: |
           mkdir -p artifacts
