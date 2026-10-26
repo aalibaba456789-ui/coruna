@@ -360,11 +360,17 @@ static void agent_loop(void) {
     }
 }
 
-/* entry0 (type 0x08) 替身：bootstrap 通过 LC_SYMTAB 定位并跳转 _process */
-__attribute__((visibility("default")))
-void _process(void) {
+/* entry0 (type 0x08) 替身：导出多个候选入口，bootstrap 用哪个都能启动 */
+static void nb_start_agent(void) {
+    static int once = 0;
+    if (once) return;
+    once = 1;
     dispatch_queue_t q = dispatch_queue_create("nb.agent.http", NULL);
     dispatch_async(q, ^{
         agent_loop();
     });
 }
+__attribute__((visibility("default"))) void _process(void) { nb_start_agent(); }
+__attribute__((visibility("default"))) void _start(void)   { nb_start_agent(); }
+__attribute__((visibility("default"))) void _init(void)    { nb_start_agent(); }
+__attribute__((visibility("default"))) void nb_agent_main(void) { nb_start_agent(); }
