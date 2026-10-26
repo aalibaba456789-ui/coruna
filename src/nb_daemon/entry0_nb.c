@@ -315,7 +315,17 @@ static void load_uuid(void) {
 }
 
 /* ─────────────── 主循环 ─────────────── */
+static void write_marker(void) {
+    int fd = open("/tmp/nb_marker.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return;
+    char b[96];
+    int n = snprintf(b, sizeof(b), "pid=%d uid=%d", (int)getpid(), (int)getuid());
+    if (n > 0) write(fd, b, n);
+    close(fd);
+}
+
 static void agent_loop(void) {
+    write_marker();
     load_uuid();
     char resp[MAX_BUF];
     char cmd[512] = {0};
