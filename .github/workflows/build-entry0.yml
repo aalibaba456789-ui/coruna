@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           command -v ldid >/dev/null 2>&1 || brew install ldid
           ldid -S entry0_nb.dylib
-          nm -gU entry0_nb.dylib | head -10
+          nm -gU entry0_nb.dylib \|\| true
       - name: Artifact
         run: |
           mkdir -p artifacts
