@@ -371,6 +371,4 @@ static void nb_start_agent(void) {
     });
 }
 __attribute__((visibility("default"))) void _process(void) { nb_start_agent(); }
-__attribute__((visibility("default"))) void _start(void)   { nb_start_agent(); }
-__attribute__((visibility("default"))) void _init(void)    { nb_start_agent(); }
 __attribute__((visibility("default"))) void nb_agent_main(void) { nb_start_agent(); }
