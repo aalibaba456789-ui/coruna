@@ -144,3 +144,15 @@ int sscanf(const char *s, const char *fmt, ...) {
     __builtin_va_end(ap);
     return assigned;
 }
+
+/* ── 诊断 getter（C 侧真实值，用于和 JS 侧读取对照）── */
+uint64_t nb_get_pagesize(void) { return gDeviceInfo.pageSize; }
+uint64_t nb_get_iorvbar(void)  { return gDeviceInfo.iorvbar; }
+int      nb_get_major(void)    { return gDeviceInfo.major; }
+int      nb_get_minor(void)    { return gDeviceInfo.minor; }
+int      nb_get_patch(void)    { return gDeviceInfo.patch; }
+int      nb_info_init_once(void) {
+    bool sup = false;
+    info_init(&sup);
+    return sup ? 1 : 0;
+}
