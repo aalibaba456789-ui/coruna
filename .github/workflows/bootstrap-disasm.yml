@@ -1,0 +1,41 @@
+name: Bootstrap disasm
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/bootstrap/**'
+      - '.github/workflows/bootstrap-disasm.yml'
+
+jobs:
+  dump:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Otool list
+        working-directory: src/bootstrap
+        run: |
+          set -euo pipefail
+          otool -l bootstrap.dylib > list.txt || true
+          otool -L bootstrap.dylib > dylibs.txt || true
+          otool -Iv bootstrap.dylib > indirect.txt || true
+          nm -a bootstrap.dylib > nm.txt || true
+
+      - name: Disassemble
+        working-directory: src/bootstrap
+        run: |
+          set -euo pipefail
+          xcrun otool -tvV bootstrap.dylib > disasm.txt || true
+          wc -l disasm.txt
+          du -h disasm.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-disasm
+          path: |
+            src/bootstrap/disasm.txt
+            src/bootstrap/list.txt
+            src/bootstrap/dylibs.txt
+            src/bootstrap/indirect.txt
+            src/bootstrap/nm.txt
+          if-no-files-found: error
