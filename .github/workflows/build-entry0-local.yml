@@ -1,0 +1,60 @@
+name: Build entry0_nb_local (arm64 + arm64e, _process export, local C2)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/nb_daemon/entry0_nb_local.c'
+      - '.github/workflows/build-entry0-local.yml'
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Build
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -arch arm64e \
+            -miphoneos-version-min=13.0 -O2 -fPIC -fblocks \
+            -framework Foundation -framework CoreFoundation -framework CFNetwork \
+            -install_name "entry0_nb_local.dylib" \
+            -o entry0_nb_local.dylib entry0_nb_local.c
+          ls -lh entry0_nb_local.dylib
+          file entry0_nb_local.dylib
+          echo "--- exported entry symbols ---"
+          nm -gU entry0_nb_local.dylib | grep -E "_process|nb_agent_main" || true
+
+      - name: Verify export
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          nm -gU entry0_nb_local.dylib | grep -q "_process" || { echo "::error::_process not exported"; exit 1; }
+          echo "_process export OK"
+
+      - name: Sign with ldid
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          command -v ldid >/dev/null 2>&1 || brew install ldid
+          ldid -S entry0_nb_local.dylib
+          file entry0_nb_local.dylib
+
+      - name: Artifact
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp src/nb_daemon/entry0_nb_local.dylib artifacts/
+          ls -lh artifacts/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: entry0-nb-local
+          path: artifacts/entry0_nb_local.dylib
+          if-no-files-found: error
