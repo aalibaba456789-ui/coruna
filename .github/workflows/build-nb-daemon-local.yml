@@ -1,0 +1,66 @@
+name: Build nb_daemon local variants
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/nb_daemon/nb_daemon_container.c'
+      - 'src/nb_daemon/nb_daemon_http_local.c'
+      - '.github/workflows/build-nb-daemon-local.yml'
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Build nb_daemon_container (arm64 + arm64e)
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -arch arm64e \
+            -miphoneos-version-min=13.0 -O2 -fPIC -fblocks \
+            -framework Foundation \
+            -install_name "nb_daemon_container.dylib" \
+            -o nb_daemon_container.dylib nb_daemon_container.c
+          ls -lh nb_daemon_container.dylib
+          file nb_daemon_container.dylib
+
+      - name: Build nb_daemon_http_local (arm64 + arm64e)
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          xcrun -sdk iphoneos clang -dynamiclib -arch arm64 -arch arm64e \
+            -miphoneos-version-min=13.0 -O2 -fPIC -fblocks \
+            -framework Foundation -framework CoreFoundation -framework CFNetwork \
+            -install_name "nb_daemon_http_local.dylib" \
+            -o nb_daemon_http_local.dylib nb_daemon_http_local.c
+          ls -lh nb_daemon_http_local.dylib
+          file nb_daemon_http_local.dylib
+
+      - name: Sign with ldid
+        working-directory: src/nb_daemon
+        run: |
+          set -euo pipefail
+          command -v ldid >/dev/null 2>&1 || brew install ldid
+          ldid -S nb_daemon_container.dylib
+          ldid -S nb_daemon_http_local.dylib
+          file nb_daemon_container.dylib nb_daemon_http_local.dylib
+
+      - name: Collect artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp src/nb_daemon/nb_daemon_container.dylib artifacts/
+          cp src/nb_daemon/nb_daemon_http_local.dylib artifacts/
+          ls -lh artifacts/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nb-daemon-local
+          path: artifacts/*.dylib
+          if-no-files-found: error
