@@ -1,0 +1,63 @@
+name: Build trigon flat blob
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/trigon/**'
+      - '.github/workflows/trigon-blob.yml'
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Compile everything (nostdlib, no stack protector)
+        working-directory: src/trigon
+        run: |
+          set -euo pipefail
+          rm -rf .o && mkdir -p .o
+          CF="-arch arm64 -miphoneos-version-min=13.0 -O2 -fPIC -fblocks -fno-stack-protector -nostdlib -I."
+          for f in *.c; do
+            echo "== $f"
+            xcrun -sdk iphoneos clang -c $CF -o ".o/${f%.c}.o" "$f"
+          done
+          for f in *.S; do
+            echo "== $f"
+            xcrun -sdk iphoneos clang -c $CF -o ".o/${f%.S}.o" "$f"
+          done
+          ls -l .o
+
+      - name: Link (static, entry = nb_set_imports)
+        working-directory: src/trigon
+        run: |
+          set -euo pipefail
+          xcrun -sdk iphoneos clang -arch arm64 -nostdlib -static \
+            -Wl,-e,_nb_set_imports -Wl,-no_pie -Wl,-undefined,error \
+            -o trigon_blob .o/*.o
+          ls -lh trigon_blob
+          file trigon_blob
+
+      - name: Flatten to raw image
+        working-directory: src/trigon
+        run: |
+          set -euo pipefail
+          python3 flatten_macho.py trigon_blob trigon_blob.bin trigon_syms.txt
+          ls -lh trigon_blob.bin
+          head -30 trigon_syms.txt
+          echo "--- key symbols ---"
+          grep -E "SYM _?(trigon|iosurface_krw_init|kread32|kread64|kwrite32|kwrite64|nb_set_imports|nb_set_heap)" trigon_syms.txt || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trigon-blob
+          path: |
+            src/trigon/trigon_blob.bin
+            src/trigon/trigon_syms.txt
+          if-no-files-found: error
