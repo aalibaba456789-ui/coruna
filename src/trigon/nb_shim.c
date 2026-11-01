@@ -1,14 +1,27 @@
 /* nb_shim.c — Trigon 扁平 blob 的运行时 shim
  * 设计：
- *   · libc 部分在本文件内自实现（小堆由 JS 传入，避免 4MB .bss）
+ *   · libc 部分在本文件内自实现（小堆由 JS 传入，避免大 .bss）
  *   · CF / IOKit / IOSurface / mach 通过 nb_imp[] 函数指针表转发
  *   · 全局符号（kCFBooleanTrue 等）由 JS 在运行时拷入固定槽位
  */
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <mach/mach.h>
 
-/* ── 导入表 ── */
+/* FORTIFY 会把 memcpy 等变成 __builtin_*_chk，这里强制用我们自己的实现 */
+#undef memcpy
+#undef memmove
+#undef memset
+#undef strlen
+#undef strcmp
+#undef memmem
+#undef bzero
+#undef malloc
+#undef calloc
+#undef free
+
+/* ── 导入表（由 JS 填充）── */
 void *nb_imp[32];
 
 /* ── 全局符号槽位（JS 运行时写入）── */
@@ -17,18 +30,20 @@ void *kCFBooleanFalse = 0;
 char kCFTypeDictionaryKeyCallBacks[64];
 char kCFTypeDictionaryValueCallBacks[64];
 void *__CFConstantStringClassReference = 0;
-unsigned int kIOMasterPortDefault = 0;
-unsigned int mach_task_self_ = 0;
-uint64_t vm_kernel_page_mask = 0;
-uint32_t vm_kernel_page_shift = 0;
-uint64_t gMappingBase = 0;
-unsigned int gExploitEntry = 0;
+mach_port_t kIOMasterPortDefault = 0;
+mach_port_t mach_task_self_ = 0;
 
-/* DeviceInfo 定义在 info.h，这里只提供存储 */
+/* SDK 已在 mach/vm_page_size.h 中声明，这里按原类型定义 */
+vm_size_t vm_kernel_page_mask = 0;
+int vm_kernel_page_shift = 0;
+
+uint64_t gMappingBase = 0;
+mach_port_t gExploitEntry = 0;
+
 #include "info.h"
 DeviceInfo gDeviceInfo;
 
-/* ── 栈保护槽位（编译时已 -fno-stack-protector，兜底）── */
+/* ── 栈保护兜底 ── */
 uint64_t __stack_chk_guard = 0;
 void __stack_chk_fail(void) { for (;;) { } }
 
@@ -100,7 +115,7 @@ void *memmem(const void *h, size_t hl, const void *n, size_t nl) {
     return 0;
 }
 
-/* ── 输出：全部静音（避免依赖 libc）── */
+/* ── 输出静音 ── */
 int printf(const char *fmt, ...) { (void)fmt; return 0; }
 int puts(const char *s) { (void)s; return 0; }
 int sscanf(const char *s, const char *fmt, ...) { (void)s; (void)fmt; return 0; }

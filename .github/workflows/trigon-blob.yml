@@ -22,7 +22,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf .o && mkdir -p .o
-          CF="-arch arm64 -miphoneos-version-min=13.0 -O2 -fPIC -fblocks -fno-stack-protector -nostdlib -I."
+          CF="-arch arm64 -miphoneos-version-min=13.0 -O2 -fPIC -fblocks -fno-stack-protector -fno-builtin -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -nostdlib -I."
           for f in *.c; do
             echo "== $f"
             xcrun -sdk iphoneos clang -c $CF -o ".o/${f%.c}.o" "$f"
