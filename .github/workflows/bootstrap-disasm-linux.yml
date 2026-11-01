@@ -1,0 +1,34 @@
+name: Bootstrap disasm linux
+on:
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          set -euo pipefail
+          which llvm-objdump || true
+          llvm-objdump --version | head -3 || true
+
+      - name: Disassemble arm64
+        working-directory: src/bootstrap
+        run: |
+          set -euo pipefail
+          llvm-objdump --macho --arch=arm64 -d bootstrap.dylib > disasm.txt 2>&1 || llvm-objdump -d bootstrap.dylib > disasm.txt 2>&1
+          wc -l disasm.txt
+          llvm-objdump --macho --arch=arm64 --syms bootstrap.dylib > syms.txt 2>&1 || true
+          llvm-objdump --macho --arch=arm64 --section-headers bootstrap.dylib > sections.txt 2>&1 || true
+          head -40 disasm.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-disasm-linux
+          path: |
+            src/bootstrap/disasm.txt
+            src/bootstrap/syms.txt
+            src/bootstrap/sections.txt
+          if-no-files-found: error
