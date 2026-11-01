@@ -41,6 +41,7 @@ NB_TRAMP _mach_vm_map,               16
 
 /* libsystem */
 NB_TRAMP _sysctlbyname,              17
+NB_TRAMP _usleep,                    18
 
 /* ── 入口：JS 调用 nb_set_imports 填表后，按符号偏移调用其它函数 ── */
     .globl _nb_set_imports
