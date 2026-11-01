@@ -37,9 +37,6 @@ mach_port_t mach_task_self_ = 0;
 vm_size_t vm_kernel_page_mask = 0;
 int vm_kernel_page_shift = 0;
 
-uint64_t gMappingBase = 0;
-mach_port_t gExploitEntry = 0;
-
 #include "info.h"
 DeviceInfo gDeviceInfo;
 
