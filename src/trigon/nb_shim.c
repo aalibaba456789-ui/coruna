@@ -115,4 +115,32 @@ void *memmem(const void *h, size_t hl, const void *n, size_t nl) {
 /* ── 输出静音 ── */
 int printf(const char *fmt, ...) { (void)fmt; return 0; }
 int puts(const char *s) { (void)s; return 0; }
-int sscanf(const char *s, const char *fmt, ...) { (void)s; (void)fmt; return 0; }
+int sscanf(const char *s, const char *fmt, ...) {
+    if (!s || !fmt) return 0;
+    __builtin_va_list ap;
+    __builtin_va_start(ap, fmt);
+    int assigned = 0;
+    const char *p = s;
+    for (const char *f = fmt; *f; f++) {
+        if (f[0] != '%') continue;
+        if (f[1] == 'd') {
+            while (*p && (*p < '0' || *p > '9') && *p != '-') p++;
+            int neg = 0;
+            if (*p == '-') { neg = 1; p++; }
+            if (*p < '0' || *p > '9') break;
+            long v = 0;
+            while (*p >= '0' && *p <= '9') { v = v * 10 + (*p - '0'); p++; }
+            int *out = __builtin_va_arg(ap, int *);
+            if (out) *out = (int)(neg ? -v : v);
+            assigned++;
+            f++;
+        } else if (f[1] == '%') {
+            if (*p == '%') p++;
+            f++;
+        } else {
+            break;
+        }
+    }
+    __builtin_va_end(ap);
+    return assigned;
+}

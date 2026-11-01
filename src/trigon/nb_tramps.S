@@ -58,4 +58,5 @@ _nb_set_imports:
     add  x10, x10, #1
     b    1b
 2:
+    mov  x0, #0
     ret
