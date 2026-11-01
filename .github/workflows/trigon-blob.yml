@@ -29,7 +29,7 @@ jobs:
           done
           for f in *.S; do
             echo "== $f"
-            xcrun -sdk iphoneos clang -c $CF -o ".o/${f%.S}.o" "$f"
+            xcrun -sdk iphoneos clang -c $CF -o ".o/asm_${f%.S}.o" "$f"
           done
           ls -l .o
 

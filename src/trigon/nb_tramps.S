@@ -8,8 +8,8 @@
     .globl \name
     .p2align 2
 \name:
-    adrp x16, nb_imp@PAGE
-    add  x16, x16, nb_imp@PAGEOFF
+    adrp x16, _nb_imp@PAGE
+    add  x16, x16, _nb_imp@PAGEOFF
     ldr  x16, [x16, #(\slot * 8)]
     br   x16
 .endm
@@ -46,8 +46,8 @@ NB_TRAMP _sysctlbyname,              17
     .globl _nb_set_imports
     .p2align 2
 _nb_set_imports:
-    adrp x9, nb_imp@PAGE
-    add  x9, x9, nb_imp@PAGEOFF
+    adrp x9, _nb_imp@PAGE
+    add  x9, x9, _nb_imp@PAGEOFF
     mov  x10, #0
 1:
     cmp  x10, #32
