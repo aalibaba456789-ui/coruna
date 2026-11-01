@@ -1,0 +1,53 @@
+name: Trigon import list
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/trigon/**'
+      - '.github/workflows/trigon-imports.yml'
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile objects (nostdlib)
+        working-directory: src/trigon
+        run: |
+          set -euo pipefail
+          mkdir -p .o
+          for f in *.c; do
+            echo "== $f"
+            xcrun -sdk iphoneos clang -c -arch arm64 -miphoneos-version-min=13.0 \
+              -O2 -fPIC -fblocks -nostdlib -I. -o ".o/${f%.c}.o" "$f" || echo "COMPILE FAIL: $f"
+          done
+          for f in *.S; do
+            echo "== $f"
+            xcrun -sdk iphoneos clang -c -arch arm64 -miphoneos-version-min=13.0 \
+              -fPIC -I. -o ".o/${f%.S}.o" "$f" || echo "COMPILE FAIL: $f"
+          done
+          ls -l .o
+
+      - name: Undefined symbols
+        working-directory: src/trigon
+        run: |
+          set -euo pipefail
+          echo "=== UNDEFINED (sorted, unique) ==="
+          nm -u .o/*.o 2>/dev/null | awk '{print $NF}' | sort -u | tee ../trigon_undef.txt
+          echo "=== COUNT ==="
+          wc -l < ../trigon_undef.txt
+
+      - name: Defined symbols
+        working-directory: src/trigon
+        run: |
+          set -euo pipefail
+          echo "=== DEFINED (T/t) ==="
+          nm -g .o/*.o 2>/dev/null | awk '$2 ~ /^[TtDdBbRr]$/ {print $2, $3}' | sort -u | tee ../trigon_def.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trigon-symbols
+          path: |
+            src/trigon_undef.txt
+            src/trigon_def.txt
